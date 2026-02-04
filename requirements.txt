@@ -8,4 +8,9 @@ mangum
 requests
 groq
 PyPDF2
+pdfplumber
+pytesseract
+pdf2image
+Pillow
+
 
