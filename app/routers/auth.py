@@ -4,6 +4,7 @@ import requests
 from app.core.config import settings
 from supabase import create_client
 import traceback
+from datetime import datetime, timezone
 
 router = APIRouter()
 supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
@@ -35,6 +36,7 @@ def github_callback(code: str, state: str):
     State contains the user_id.
     """
     user_id = state
+    current_time = datetime.now(timezone.utc).isoformat()
     
     try:
         # 1. Exchange code for token
@@ -74,42 +76,53 @@ def github_callback(code: str, state: str):
             raise HTTPException(status_code=400, detail="Failed to fetch GitHub user info")
         
         gh_user = user_resp.json()
+        print(f"GitHub user fetched: {gh_user.get('login')}")
         
         # 3. Check if connection already exists
         existing = supabase.table("github_connections").select("id").eq("user_id", user_id).execute()
         
-        data = {
-            "user_id": user_id,
-            "github_user_id": str(gh_user["id"]),
-            "github_username": gh_user["login"],
-            "github_email": gh_user.get("email"),
-            "github_avatar_url": gh_user.get("avatar_url"),
-            "access_token": access_token,
-            "updated_at": "now()"
-        }
-        
         if existing.data:
             # Update existing connection
-            supabase.table("github_connections").update(data).eq("user_id", user_id).execute()
+            update_data = {
+                "github_user_id": str(gh_user["id"]),
+                "github_username": gh_user["login"],
+                "github_email": gh_user.get("email"),
+                "github_avatar_url": gh_user.get("avatar_url"),
+                "access_token": access_token,
+                "updated_at": current_time
+            }
+            supabase.table("github_connections").update(update_data).eq("user_id", user_id).execute()
             print(f"Updated GitHub connection for user: {user_id}")
         else:
             # Insert new connection
-            data["created_at"] = "now()"
-            supabase.table("github_connections").insert(data).execute()
-            print(f"Created GitHub connection for user: {user_id}")
+            insert_data = {
+                "user_id": user_id,
+                "github_user_id": str(gh_user["id"]),
+                "github_username": gh_user["login"],
+                "github_email": gh_user.get("email"),
+                "github_avatar_url": gh_user.get("avatar_url"),
+                "access_token": access_token,
+                "created_at": current_time,
+                "updated_at": current_time
+            }
+            result = supabase.table("github_connections").insert(insert_data).execute()
+            print(f"Created GitHub connection for user: {user_id}, result: {result.data}")
         
         # 4. Also update the profiles table
-        supabase.table("profiles").update({
+        profile_update = {
             "github_username": gh_user["login"],
-            "github_connected_at": "now()"
-        }).eq("id", user_id).execute()
+            "github_connected_at": current_time
+        }
+        supabase.table("profiles").update(profile_update).eq("id", user_id).execute()
+        print(f"Updated profile for user: {user_id}")
         
         return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?feature=github_connected")
         
     except HTTPException:
         raise
     except Exception as e:
+        error_msg = str(e).replace("'", "").replace('"', '')[:100]  # Clean error message
         print(f"GitHub callback error: {str(e)}")
         print(traceback.format_exc())
         # Redirect with error instead of crashing
-        return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?error=github_connection_failed&message={str(e)}")
+        return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?error=github_connection_failed&detail={error_msg}")
