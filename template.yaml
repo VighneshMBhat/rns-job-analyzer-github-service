@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: GitHub Service - Skill Extraction from Repositories & Resumes
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Runtime: python3.11
+    Architectures:
+      - x86_64
+
+Resources:
+  GithubServiceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: main.handler
+      CodeUri: .
+      Description: GitHub Service - Fetches repos, extracts skills using Groq AI
+      Environment:
+        Variables:
+          SUPABASE_URL: !Ref SupabaseUrl
+          SUPABASE_KEY: !Ref SupabaseKey
+          SUPABASE_SERVICE_ROLE_KEY: !Ref SupabaseServiceRoleKey
+          FRONTEND_URL: !Ref FrontendUrl
+          HOST_URL: !Ref HostUrl
+          GITHUB_CLIENT_ID: !Ref GithubClientId
+          GITHUB_CLIENT_SECRET: !Ref GithubClientSecret
+          GITHUB_REDIRECT_URI: !Ref GithubRedirectUri
+          GROQ_API_KEY: !Ref GroqApiKey
+          GROQ_MODEL: !Ref GroqModel
+      Events:
+        ApiRoot:
+          Type: Api
+          Properties:
+            Path: /
+            Method: ANY
+        ApiProxy:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+Parameters:
+  SupabaseUrl:
+    Type: String
+    Description: Supabase URL
+
+  SupabaseKey:
+    Type: String
+    Description: Supabase Anon Key
+    NoEcho: true
+
+  SupabaseServiceRoleKey:
+    Type: String
+    Description: Supabase Service Role Key
+    NoEcho: true
+  
+  FrontendUrl:
+    Type: String
+    Description: Frontend URL for redirects
+    Default: "https://talento-vision.vercel.app"
+
+  HostUrl:
+    Type: String
+    Description: Base URL of this API Gateway
+
+  GithubClientId:
+    Type: String
+    Description: GitHub OAuth Client ID
+
+  GithubClientSecret:
+    Type: String
+    Description: GitHub OAuth Client Secret
+    NoEcho: true
+
+  GithubRedirectUri:
+    Type: String
+    Description: GitHub OAuth Redirect URI
+
+  GroqApiKey:
+    Type: String
+    Description: Groq Cloud API Key
+    NoEcho: true
+
+  GroqModel:
+    Type: String
+    Description: Groq Model Name
+    Default: "llama-3.3-70b-versatile"
+
+Outputs:
+  GithubServiceApi:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  
+  GithubServiceFunction:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt GithubServiceFunction.Arn
