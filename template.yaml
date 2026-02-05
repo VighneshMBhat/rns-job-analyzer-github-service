@@ -24,6 +24,7 @@ Resources:
           SUPABASE_SERVICE_ROLE_KEY: !Ref SupabaseServiceRoleKey
           FRONTEND_URL: !Ref FrontendUrl
           HOST_URL: !Ref HostUrl
+          # Dynamic keys are fetched from database, these are optional fallbacks
           GITHUB_CLIENT_ID: !Ref GithubClientId
           GITHUB_CLIENT_SECRET: !Ref GithubClientSecret
           GITHUB_REDIRECT_URI: !Ref GithubRedirectUri
@@ -64,24 +65,30 @@ Parameters:
   HostUrl:
     Type: String
     Description: Base URL of this API Gateway
+    Default: ""
 
+  # Optional - can be fetched from database via Admin Portal
   GithubClientId:
     Type: String
-    Description: GitHub OAuth Client ID
+    Description: GitHub OAuth Client ID (optional - fetched from database)
+    Default: ""
 
   GithubClientSecret:
     Type: String
-    Description: GitHub OAuth Client Secret
+    Description: GitHub OAuth Client Secret (optional - fetched from database)
     NoEcho: true
+    Default: ""
 
   GithubRedirectUri:
     Type: String
     Description: GitHub OAuth Redirect URI
+    Default: ""
 
   GroqApiKey:
     Type: String
-    Description: Groq Cloud API Key
+    Description: Groq Cloud API Key (optional - fetched from database)
     NoEcho: true
+    Default: ""
 
   GroqModel:
     Type: String
