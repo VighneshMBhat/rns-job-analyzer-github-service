@@ -2,7 +2,6 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
 import requests
 from app.core.config import settings
-from app.services.key_service import get_github_client_id, get_github_client_secret
 from supabase import create_client
 import traceback
 from datetime import datetime, timezone
@@ -12,11 +11,11 @@ supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_K
 
 
 def _get_github_credentials():
-    """Get GitHub OAuth credentials (database first, then env fallback)."""
-    client_id = get_github_client_id(fallback=settings.GITHUB_CLIENT_ID)
-    client_secret = get_github_client_secret(fallback=settings.GITHUB_CLIENT_SECRET)
+    """Get GitHub OAuth credentials from environment variables."""
+    client_id = settings.GITHUB_CLIENT_ID
+    client_secret = settings.GITHUB_CLIENT_SECRET
     if not client_id or not client_secret:
-        raise ValueError("GitHub OAuth not configured. Add credentials via Admin Portal.")
+        raise ValueError("GitHub OAuth not configured. Add GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET to Lambda environment variables.")
     return client_id, client_secret
 
 

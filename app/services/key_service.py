@@ -1,5 +1,10 @@
 """
 Key Service - Fetches API keys from Supabase admin_api_keys table
+
+Only manages rate-limited API keys:
+- GROQ_API_KEY (for skill extraction)
+
+Permanent credentials like GitHub OAuth are read from environment variables only.
 """
 import requests
 from datetime import datetime, timedelta
@@ -58,18 +63,8 @@ def get_api_key(service_name: str, key_name: str, fallback: str = None) -> str:
 
 
 def get_groq_key(fallback: str = None) -> str:
-    """Get Groq API key."""
+    """Get Groq API key (rate-limited, managed via Admin Portal)."""
     return get_api_key("groq", "GROQ_API_KEY", fallback)
-
-
-def get_github_client_id(fallback: str = None) -> str:
-    """Get GitHub Client ID."""
-    return get_api_key("github", "GITHUB_CLIENT_ID", fallback)
-
-
-def get_github_client_secret(fallback: str = None) -> str:
-    """Get GitHub Client Secret."""
-    return get_api_key("github", "GITHUB_CLIENT_SECRET", fallback)
 
 
 def clear_cache():
