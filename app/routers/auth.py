@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
 import requests
 from app.core.config import settings
+from app.services.key_service import get_github_client_id, get_github_client_secret
 from supabase import create_client
 import traceback
 from datetime import datetime, timezone
@@ -9,19 +10,31 @@ from datetime import datetime, timezone
 router = APIRouter()
 supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 
+
+def _get_github_credentials():
+    """Get GitHub OAuth credentials (database first, then env fallback)."""
+    client_id = get_github_client_id(fallback=settings.GITHUB_CLIENT_ID)
+    client_secret = get_github_client_secret(fallback=settings.GITHUB_CLIENT_SECRET)
+    if not client_id or not client_secret:
+        raise ValueError("GitHub OAuth not configured. Add credentials via Admin Portal.")
+    return client_id, client_secret
+
+
 @router.get("/connect")
 def connect_github(user_id: str):
     """
     Initiates GitHub OAuth flow to link account.
     Pass user_id in query state to bind it on callback.
     """
+    client_id, _ = _get_github_credentials()
+    
     # Valid GitHub scopes: https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps
     scope = "read:user repo"  # read:user for profile, repo for reading repos
     redirect_uri = settings.GITHUB_REDIRECT_URI
     
     github_url = (
         f"https://github.com/login/oauth/authorize"
-        f"?client_id={settings.GITHUB_CLIENT_ID}"
+        f"?client_id={client_id}"
         f"&redirect_uri={redirect_uri}"
         f"&scope={scope}"
         f"&state={user_id}"
@@ -39,13 +52,16 @@ def github_callback(code: str, state: str):
     current_time = datetime.now(timezone.utc).isoformat()
     
     try:
+        # Get dynamic credentials
+        client_id, client_secret = _get_github_credentials()
+        
         # 1. Exchange code for token
         token_resp = requests.post(
             "https://github.com/login/oauth/access_token",
             headers={"Accept": "application/json"},
             data={
-                "client_id": settings.GITHUB_CLIENT_ID,
-                "client_secret": settings.GITHUB_CLIENT_SECRET,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "code": code,
                 "redirect_uri": settings.GITHUB_REDIRECT_URI
             },

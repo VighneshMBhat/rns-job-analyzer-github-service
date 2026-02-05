@@ -1,8 +1,17 @@
 from groq import Groq
 from app.core.config import settings
+from app.services.key_service import get_groq_key
 import json
 
-client = Groq(api_key=settings.GROQ_API_KEY)
+
+def _get_groq_client():
+    """Get Groq client with dynamic API key (database first, then env fallback)."""
+    # Try database first, then fall back to environment variable
+    api_key = get_groq_key(fallback=settings.GROQ_API_KEY)
+    if not api_key:
+        raise ValueError("GROQ_API_KEY not configured. Add it via Admin Portal or environment variable.")
+    return Groq(api_key=api_key)
+
 
 def extract_skills_from_text(text: str, source_context: str = "readme") -> list[dict]:
     """
@@ -15,6 +24,9 @@ def extract_skills_from_text(text: str, source_context: str = "readme") -> list[
     """
     if not text or len(text) < 50:
         return []
+
+    # Get client with dynamic key
+    client = _get_groq_client()
 
     if source_context == "resume":
         prompt = f"""
