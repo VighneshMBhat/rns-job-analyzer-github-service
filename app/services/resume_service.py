@@ -151,6 +151,12 @@ def process_user_resume(user_id: str) -> dict:
     
     resume_url = profile_res.data["resume_url"]
     
+    # Ensure we have a full URL (not just a path)
+    if resume_url and not resume_url.startswith("http"):
+        # Construct full Supabase Storage URL
+        resume_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/resumes/{resume_url}"
+        print(f"Constructed full resume URL: {resume_url}")
+    
     # 2. Download the resume
     pdf_content = download_resume(resume_url)
     if not pdf_content:
@@ -166,6 +172,44 @@ def process_user_resume(user_id: str) -> dict:
     if not skills:
         return {"success": False, "error": "No skills extracted from resume"}
     
+    # --- START: History & Cleanup ---
+    # 5a. Archive existing resume skills
+    current_resume_skills = supabase.table("user_skills").select("*").eq("user_id", user_id).eq("source", "resume").execute()
+    
+    if current_resume_skills.data:
+        history_entries = []
+        for s in current_resume_skills.data:
+            history_entries.append({
+                "user_id": user_id,
+                "skill_name": s["skill_name"],
+                "proficiency_level": s["proficiency_level"],
+                "confidence_score": s["confidence_score"],
+                "source_resume_url": resume_url,
+                "meta_data": {"original_id": s["id"], "source_repo": s.get("source_repo")}
+            })
+        
+        if history_entries:
+            try:
+                supabase.table("resume_skill_history").insert(history_entries).execute()
+            except Exception as e:
+                print(f"Failed to archive resume history: {e}")
+
+        # 5b. Cleanup (Delete pure resume skills, Demote mixed skills)
+        for s in current_resume_skills.data:
+            if s.get("source_repo"):
+                # Mixed source (Resume + GitHub) -> Convert to GitHub only
+                # Decrement proficiency (remove resume contribution)
+                new_prof = max(1, (s.get("proficiency_level") or 1) - 1)
+                supabase.table("user_skills").update({
+                    "source": "github",
+                    "proficiency_level": new_prof,
+                    "updated_at": "now()"
+                }).eq("id", s["id"]).execute()
+            else:
+                # Pure resume skill -> Delete
+                supabase.table("user_skills").delete().eq("id", s["id"]).execute()
+    # --- END: History & Cleanup ---
+
     # 5. Store skills in database
     skills_stored = 0
     skills_updated = 0
@@ -181,16 +225,35 @@ def process_user_resume(user_id: str) -> dict:
         existing = supabase.table("user_skills").select("id, proficiency_level, source").eq("user_id", user_id).eq("skill_name_normalized", skill_name.lower()).execute()
         
         if existing.data:
-            # Skill exists - update proficiency if from different source
+            # Skill exists
             existing_skill = existing.data[0]
-            if existing_skill["source"] != "resume":
-                # Skill also found in resume - increase proficiency
+            
+            # If it's "github" source (since we cleared "resume" ones), we merge it
+            if existing_skill["source"] == "github":
+                # Convert to "resume" source (OR keep github? Code logic prefer merging into one)
+                # The prompt implies we should track "from this resume".
+                # But our unique constraint checks (user, name, source).
+                # If we want to allow "GitHub" row and "Resume" row to exist separately, 
+                # we should NOT query by name only.
+                # BUT user explicitly said "should not be repetitive". So merging is correct.
+                # We'll allow "resume" to take precedence as source for mixed? 
+                # Or keep "github" and just increment?
+                # Previous logic was: if resume, update. If github, update.
+                
+                # Let's sticking to: "If found in resume, ensuring it reflects that."
+                # We will Set source='resume' (marking it as also in resume) and increment.
+                # NOTE: This effectively makes it "mixed" again.
+                
                 new_proficiency = (existing_skill.get("proficiency_level") or 1) + 1
                 supabase.table("user_skills").update({
+                    "source": "resume", # Mark as resume source (so next time we know to clean it)
                     "proficiency_level": new_proficiency,
                     "updated_at": "now()"
                 }).eq("id", existing_skill["id"]).execute()
                 skills_updated += 1
+            elif existing_skill["source"] == "resume": 
+                # Already exists? (Shouldn't happen unless duplicate in same resume text or we just inserted it)
+                pass 
         else:
             # New skill - insert
             supabase.table("user_skills").insert({

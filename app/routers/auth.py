@@ -131,6 +131,31 @@ def github_callback(code: str, state: str):
         supabase.table("profiles").update(profile_update).eq("id", user_id).execute()
         print(f"Updated profile for user: {user_id}")
         
+        # 5. Trigger Async Repo Sync
+        try:
+            import boto3
+            import os
+            import json
+            
+            # Check if running in Lambda
+            function_name = os.environ.get('AWS_LAMBDA_FUNCTION_NAME')
+            if function_name:
+                client = boto3.client('lambda')
+                payload = {"task": "sync_user_repos", "user_id": user_id}
+                
+                # Async invocation (Event)
+                client.invoke(
+                    FunctionName=function_name,
+                    InvocationType='Event',  # Fire and forget
+                    Payload=json.dumps(payload)
+                )
+                print(f"Triggered async sync for user: {user_id}")
+            else:
+                print("Skipping async sync - not running in Lambda environment")
+        except Exception as sync_e:
+            print(f"Failed to trigger async sync: {str(sync_e)}")
+            # Don't fail the auth flow just because sync trigger failed
+        
         return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?feature=github_connected")
         
     except HTTPException:
@@ -141,3 +166,52 @@ def github_callback(code: str, state: str):
         print(traceback.format_exc())
         # Redirect with error instead of crashing
         return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?error=github_connection_failed&detail={error_msg}")
+
+
+@router.get("/status/{user_id}")
+def get_github_status(user_id: str):
+    """
+    Check GitHub connection status for a user.
+    Returns connection info if exists, or null if not connected.
+    """
+    try:
+        result = supabase.table("github_connections").select(
+            "github_username, github_avatar_url, github_email, last_sync_at, repos_analyzed, created_at"
+        ).eq("user_id", user_id).single().execute()
+        
+        if result.data:
+            return {
+                "connected": True,
+                "github_username": result.data.get("github_username"),
+                "github_avatar_url": result.data.get("github_avatar_url"),
+                "github_email": result.data.get("github_email"),
+                "last_sync_at": result.data.get("last_sync_at"),
+                "repos_analyzed": result.data.get("repos_analyzed"),
+                "connected_at": result.data.get("created_at")
+            }
+        return {"connected": False}
+    except Exception as e:
+        print(f"Error checking GitHub status: {e}")
+        return {"connected": False, "error": str(e)}
+
+
+@router.delete("/disconnect/{user_id}")
+def disconnect_github(user_id: str):
+    """
+    Disconnect GitHub account for a user.
+    Removes the connection from the database.
+    """
+    try:
+        # Delete GitHub connection
+        supabase.table("github_connections").delete().eq("user_id", user_id).execute()
+        
+        # Also clear github_username from profile
+        supabase.table("profiles").update({
+            "github_username": None,
+            "github_connected_at": None
+        }).eq("id", user_id).execute()
+        
+        return {"success": True, "message": "GitHub disconnected successfully"}
+    except Exception as e:
+        print(f"Error disconnecting GitHub: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to disconnect: {str(e)}")
